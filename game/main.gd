@@ -11,6 +11,8 @@ var background: TextureRect
 var ui: Control
 var modal: Control
 var session = {}
+var app_session = {}
+var job_is_applicant = false
 var current = 0
 var busy = false
 var generation = false
@@ -27,6 +29,12 @@ var chat_waiting = false
 var status_label: Label
 var company_input: LineEdit
 var description_input: TextEdit
+var app_form_last: LineEdit
+var app_form_first: LineEdit
+var app_form_age: LineEdit
+var app_form_position: LineEdit
+var app_form_achievements: TextEdit
+var app_form_salary: LineEdit
 var poll_timer: Timer
 var api_url = "http://127.0.0.1:18765"
 var textures = {}
@@ -157,11 +165,12 @@ func show_menu():
 	label("Бәрі дұрыс\nадамдардан\nбасталады.",85,135,485,210,48,PAPER,ui,true)
 	label("АЛМАТЫ  /  СІЗДІҢ АЛҒАШҚЫ КОМАНДАҢЫЗ",85,365,485,25,14,GOLD)
 	label("Өз компанияңызды ашыңыз. Үміткерлермен сөйлесіп, бес адамнан тұратын команда құрыңыз.",85,409,470,85,21)
-	button("Жаңа компания құру  →",85,538,495,62,show_setup,ui,true)
-	var cont = button("Сақталған ойынды жалғастыру",85,613,495,54,resume_game)
+	button("Директор ретінде ойнау  →",85,505,495,60,show_setup,ui,true)
+	button("Үміткер ретінде ойнау  →",85,577,495,60,show_applicant_form,ui,true)
+	button("Шығу",85,649,495,52,func(): get_tree().quit())
+	var cont = button("Сақталған ойынды жалғастыру",85,715,300,46,resume_game)
 	cont.disabled = last_session.is_empty()
-	button("Қалай ойнаймыз?",85,680,300,50,show_rules)
-	button("Шығу",400,680,180,50,func(): get_tree().quit())
+	button("Қалай ойнаймыз?",400,715,180,46,show_rules)
 	label("15 үміткер   ·   5 орын   ·   100 ұпай",85,776,495,30,18,MUTED)
 	label("ДИРЕКТОР КАБИНЕТІ",1190,54,350,30,16,Color.WHITE)
 	label("Қазақстан, Алматы",1190,84,350,30,19,Color.WHITE)
@@ -189,6 +198,78 @@ func show_setup():
 	button("Артқа",500,726,170,62,show_menu)
 	company_input.grab_focus()
 
+func show_applicant_form():
+	screen = "applicant_form"
+	clear_ui()
+	photo()
+	panel(70,55,650,790)
+	label("BASQARU  /  ҮМІТКЕР АНКЕТАСЫ",110,85,560,30,17,GOLD)
+	label("Өзіңізді\ntаныстырыңыз",110,135,560,130,42,PAPER,ui,true)
+	label("Тегі",110,285,540,30)
+	app_form_last = LineEdit.new()
+	app_form_last.placeholder_text = "Мысалы: Серіков"
+	app_form_last.max_length = 40
+	rect(app_form_last,110,317,560,52)
+	label("Аты",110,383,540,30)
+	app_form_first = LineEdit.new()
+	app_form_first.placeholder_text = "Мысалы: Айдана"
+	app_form_first.max_length = 40
+	rect(app_form_first,110,415,560,52)
+	label("Жасы",110,481,250,30)
+	app_form_age = LineEdit.new()
+	app_form_age.placeholder_text = "Мысалы: 29"
+	app_form_age.max_length = 3
+	rect(app_form_age,110,513,260,52)
+	label("Қалаған айлық, ₸",390,481,280,30)
+	app_form_salary = LineEdit.new()
+	app_form_salary.placeholder_text = "Мысалы: 400 000"
+	app_form_salary.max_length = 12
+	rect(app_form_salary,390,513,280,52)
+	label("Қай лауазымға өтініш бересіз?",110,579,540,30)
+	app_form_position = LineEdit.new()
+	app_form_position.placeholder_text = "Мысалы: Маркетинг менеджері"
+	app_form_position.max_length = 80
+	rect(app_form_position,110,611,560,52)
+	label("Бұл саладағы жетістіктеріңіз (бар болса)",110,677,540,30)
+	app_form_achievements = TextEdit.new()
+	app_form_achievements.placeholder_text = "Мысалы: CRM жобасын басқардым, конверсия 18%-ға өсті..."
+	app_form_achievements.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	rect(app_form_achievements,110,709,560,70)
+	button("Анкетаны жіберу  →",110,795,375,50,submit_application,ui,true)
+	button("Артқа",500,795,170,50,show_menu)
+	app_form_last.grab_focus()
+
+func submit_application():
+	if busy: return
+	var last_t = app_form_last.text.strip_edges()
+	var first_t = app_form_first.text.strip_edges()
+	var pos_t = app_form_position.text.strip_edges()
+	var age_t = app_form_age.text.strip_edges()
+	var sal_t = app_form_salary.text.strip_edges().replace(" ","")
+	if last_t.length()<2 or first_t.length()<2 or pos_t.length()<3 or age_t.is_empty() or sal_t.is_empty():
+		show_message("Анкетаны толтырыңыз","Тегі, аты, жасы, лауазымы мен қалаған айлықты жазыңыз.")
+		return
+	if not age_t.is_valid_int() or not sal_t.is_valid_int():
+		show_message("Сандар қажет","Жас пен айлықты санмен жазыңыз.")
+		return
+	busy = true
+	var result = await api("/applicant/new",{"last_name":last_t,"first_name":first_t,"age":int(age_t),"position":pos_t,"achievements":app_form_achievements.text.strip_edges(),"salary":int(sal_t)})
+	busy = false
+	if result.has("error"):
+		show_message("Қосылымды тексеріңіз",result.error)
+		return
+	job = result.job
+	job_is_applicant = true
+	generation = true
+	screen = "loading"
+	clear_ui()
+	panel(100,250,620,390)
+	label("Директор сізбен сөйлесуге\ndайындалып жатыр",140,280,540,115,36,PAPER,ui,true)
+	label("Анкетасыңыз оқылып, сұрақтар дайындалуда.",140,414,540,70,20,MUTED)
+	status_label = label("Сәл күте тұрыңыз…",140,517,540,35,22,GOLD)
+	label("Бұл бірнеше минутқа созылуы мүмкін.",140,576,540,30,16,MUTED)
+	poll_timer.start()
+
 func start_game():
 	if busy: return
 	var name_text = company_input.text.strip_edges()
@@ -203,6 +284,7 @@ func start_game():
 		show_message("Қосылымды тексеріңіз",result.error)
 		return
 	job = result.job
+	job_is_applicant = false
 	generation = true
 	screen = "loading"
 	clear_ui()
@@ -219,15 +301,22 @@ func poll_job():
 	var result = await api("/job",{"job":job})
 	if result.has("error") or result.get("status","") == "error":
 		generation = false
-		show_setup()
-		show_message("Үміткерлер дайындалмады",result.get("error","Қайталап көріңіз."))
+		if result.get("kind","") == "applicant":
+			show_applicant_form()
+			show_message("Сөхбат дайындалмады",result.get("error","Қайталап көріңіз."))
+		else:
+			show_setup()
+			show_message("Үміткерлер дайындалмады",result.get("error","Қайталап көріңіз."))
 		return
 	if result.get("status","") == "ready":
 		generation = false
-		last_session = result.session
-		await resume_game()
+		if result.get("kind","") == "applicant":
+			await resume_applicant(result.session)
+		else:
+			last_session = result.session
+			await resume_game()
 	else:
-		if is_instance_valid(status_label): status_label.text = "Дайын анкеталар: %d / 15" % result.get("progress",0)
+		if is_instance_valid(status_label) and not job_is_applicant: status_label.text = "Дайын анкеталар: %d / 15" % result.get("progress",0)
 		poll_timer.start()
 
 func resume_game():
@@ -248,6 +337,82 @@ func resume_game():
 
 func candidate() -> Dictionary:
 	return session.candidates[current]
+
+func resume_applicant(sid: String):
+	if busy: return
+	busy = true
+	var result = await api("/applicant/load",{"session":sid})
+	busy = false
+	if result.has("error"):
+		show_message("Сөхбат ашылмады",result.error)
+		return
+	app_session = result
+	show_applicant_interview()
+
+func show_applicant_interview():
+	screen = "applicant"
+	clear_ui()
+	photo()
+	panel(24,20,1552,75)
+	label("BASQARU  /  СӨХБАТ",46,38,260,36,25,GOLD)
+	label(app_session.position,320,35,900,40,24)
+	button("Мәзір",1409,34,144,48,func():
+		if not busy: show_menu())
+	panel(24,122,340,366)
+	label("СІЗ  ·  ҮМІТКЕР",47,145,295,30,15,GOLD)
+	label(app_session.first_name+" "+app_session.last_name,47,196,295,70,29,PAPER,ui,true)
+	label(app_session.position,47,276,295,58,19)
+	label(str(app_session.age)+" жас",47,342,295,32,15,MUTED)
+	label(money(app_session.salary)+" / ай — қалаған",47,391,295,33,21,GOLD)
+	panel(1176,122,400,540)
+	label("ДИРЕКТОРМЕН СӨХБАТ",1200,137,350,26,15,GOLD)
+	chat_status = label("Жауабыңызды жазыңыз",1200,169,350,25,14,MUTED)
+	chat_box = RichTextLabel.new()
+	chat_box.bbcode_enabled = false
+	chat_box.scroll_following = true
+	chat_box.add_theme_font_size_override("normal_font_size",18)
+	rect(chat_box,1200,207,350,337)
+	refresh_app_chat()
+	quick_buttons.clear()
+	question = LineEdit.new()
+	question.placeholder_text = "Директорға жауабыңызды жазыңыз…"
+	question.max_length = 1500
+	question.text_submitted.connect(func(_text): ask_app())
+	panel(450,699,700,78)
+	rect(question,468,715,490,46)
+	send_button = button("Жіберу →",974,715,157,46,ask_app,ui,true)
+	panel(24,804,1552,76)
+	button("Сөхбаттан шығу",44,818,240,48,func():
+		if not busy: show_menu())
+	label("Директор сұрақ қояды — нақты жауап беріңіз",330,826,800,30,17,MUTED)
+
+func refresh_app_chat():
+	chat_box.text = "Директор\n"+app_session.intro+"\n\n"
+	for m in app_session.histories:
+		chat_box.text += ("Сіз" if m.role=="user" else "Директор")+"\n"+m.content+"\n\n"
+
+func ask_app():
+	if busy: return
+	var message = question.text.strip_edges()
+	if message.is_empty(): return
+	busy = true
+	set_chat_waiting(true)
+	chat_box.text += "Сіз\n"+message+"\n\nДиректор ойланып жатыр…\n"
+	var result = await api("/applicant/chat",{"session":app_session.id,"message":message})
+	busy = false
+	set_chat_waiting(false)
+	if result.has("error"):
+		chat_status.text = "Жауап алынбады. Қайталап көріңіз."
+		refresh_app_chat()
+		show_message("Жауап алынбады",result.error+"\nЖауабыңыз сақталды. Қайталап жіберуге болады.")
+		question.text = message
+		return
+	app_session.histories.append({"role":"user","content":message})
+	app_session.histories.append({"role":"assistant","content":result.answer})
+	question.text = ""
+	chat_status.text = "Alem AI · жауап алынды"
+	refresh_app_chat()
+	question.grab_focus()
 
 func money(value) -> String:
 	var v = str(int(value))
@@ -518,7 +683,7 @@ func show_report():
 	label("/ 100 ұпай",110,405,270,40,25,MUTED)
 	label("Командаңыздың алғашқы қадамы",105,467,370,65,24)
 	label("Айлық қор\n"+money(report.spent),105,560,380,70,22,GOLD)
-	button("Жаңа компания",105,705,330,60,show_setup,ui,true)
+	button("Жаңа компания құру  →",105,705,330,60,show_setup,ui,true)
 	button("Мәзір",105,778,330,45,show_menu)
 	var scroll = ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED

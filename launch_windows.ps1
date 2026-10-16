@@ -2,6 +2,11 @@ $ErrorActionPreference = 'Stop'
 Set-Location C:\Users\2022\basqaru
 if (-not (Test-Path data)) { New-Item -ItemType Directory data | Out-Null }
 
+# kill previous service and game instances
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like '*basqaru*server.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Output ("old service stopped: " + $_.ProcessId) }
+Get-Process -Name Basqaru -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+
 # token + free port
 $token = (New-Guid).ToString('N')
 $port = (python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()").Trim()
