@@ -305,7 +305,7 @@ func poll_job():
 		generation = false
 		if result.get("kind","") == "applicant":
 			show_applicant_form()
-			show_message("Сөхбат дайындалмады",result.get("error","Қайталап көріңіз."))
+			show_message("Сұхбат дайындалмады",result.get("error","Қайталап көріңіз."))
 		else:
 			show_setup()
 			show_message("Үміткерлер дайындалмады",result.get("error","Қайталап көріңіз."))
@@ -346,7 +346,7 @@ func resume_applicant(sid: String):
 	var result = await api("/applicant/load",{"session":sid})
 	busy = false
 	if result.has("error"):
-		show_message("Сөхбат ашылмады",result.error)
+		show_message("Сұхбат ашылмады",result.error)
 		return
 	app_session = result
 	show_applicant_interview()
@@ -356,7 +356,7 @@ func show_applicant_interview():
 	clear_ui()
 	photo()
 	panel(24,20,1552,75)
-	label("BASQARU  /  СӨХБАТ",46,38,260,36,25,GOLD)
+	label("BASQARU  /  СҰХБАТ",46,38,260,36,25,GOLD)
 	label(app_session.position,320,35,900,40,24)
 	button("Мәзір",1409,34,144,48,func():
 		if not busy: show_menu())
@@ -367,7 +367,7 @@ func show_applicant_interview():
 	label(str(app_session.age)+" жас",47,342,295,32,15,MUTED)
 	label(money(app_session.salary)+" / ай — қалаған",47,391,295,33,21,GOLD)
 	panel(1176,122,400,540)
-	label("ДИРЕКТОРМЕН СӨХБАТ",1200,137,270,26,15,GOLD)
+	label("ДИРЕКТОРМЕН СҰХБАТ",1200,137,270,26,15,GOLD)
 	q_count_label = label("Сұрақ 1 / 10",1420,137,130,26,15,GOLD)
 	q_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	update_q_count()
@@ -387,7 +387,7 @@ func show_applicant_interview():
 	rect(question,468,715,490,46)
 	send_button = button("Жіберу →",974,715,157,46,ask_app,ui,true)
 	panel(24,804,1552,76)
-	button("Сөхбаттан шығу",44,818,200,48,func():
+	button("Сұхбаттан шығу",44,818,200,48,func():
 		if not busy: show_menu())
 	app_report_button = button("Қорытындыны алу  →",254,818,220,48,fetch_app_report)
 	app_report_button.disabled = true
@@ -396,7 +396,7 @@ func show_applicant_interview():
 func update_q_count():
 	if not is_instance_valid(q_count_label): return
 	if app_session.get("finished",false):
-		q_count_label.text = "Сөхбат аяқталды"
+		q_count_label.text = "Сұхбат аяқталды"
 		return
 	var n = 1
 	for m in app_session.histories:
@@ -432,9 +432,9 @@ func ask_app():
 	refresh_app_chat()
 	if result.has("finished") and result.finished:
 		app_session.finished = true
-		chat_status.text = "Сөхбат аяқталды · Қорытынды дайындалуда…"
+		chat_status.text = "Сұхбат аяқталды · Қорытынды дайындалуда…"
 		question.editable = false
-		question.placeholder_text = "Сөхбат аяқталды"
+		question.placeholder_text = "Сұхбат аяқталды"
 		send_button.disabled = true
 		send_button.text = "Аяқталды"
 		update_q_count()
@@ -459,7 +459,7 @@ func fetch_app_report():
 		if is_instance_valid(chat_status): chat_status.text = "Қорытынды алынбады. Қайталап көріңіз."
 		show_message("Қорытынды дайындалмады",rep.error+"\n«Қорытындыны алу» батырмасымен қайталауға болады.")
 		return
-	app_session.report = rep
+	app_session.report = rep.get("report",{})
 	show_applicant_report()
 
 func show_applicant_report():
@@ -467,14 +467,16 @@ func show_applicant_report():
 	clear_ui()
 	photo()
 	panel(65,45,1470,810)
-	var r = app_session.report
-	label("BASQARU  /  СӨХБАТ ҚОРЫТЫНДЫСЫ",105,75,900,35,19,GOLD)
-	label(r.headline,105,145,1000,75,40,PAPER,ui,true)
-	label(str(r.score),105,250,270,150,115,GOLD)
+	var r: Dictionary = app_session.get("report",{})
+	var score: int = int(r.get("score",0))
+	var headline: String = str(r.get("headline",""))
+	label("BASQARU  /  СҰХБАТ ҚОРЫТЫНДЫСЫ",105,75,900,35,19,GOLD)
+	label(headline,105,145,1000,75,40,PAPER,ui,true)
+	label(str(score),105,250,270,150,115,GOLD)
 	label("/ 100 ұпай",110,405,270,40,25,MUTED)
 	label(app_session.first_name+" "+app_session.last_name,105,467,380,50,24)
 	label(app_session.position+"  ·  "+str(app_session.age)+" жас",105,520,380,50,18,MUTED)
-	button("Жаңа сөхбат  →",105,705,330,60,show_applicant_form,ui,true)
+	button("Жаңа сұхбат  →",105,705,330,60,show_applicant_form,ui,true)
 	button("Мәзір",105,778,330,45,show_menu)
 	var scroll = ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -483,14 +485,18 @@ func show_applicant_report():
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_theme_constant_override("separation",15)
 	scroll.add_child(box)
+	var summary: String = str(r.get("summary",""))
 	paragraph(box,"ТАЛДАУ",16,MUTED)
-	paragraph(box,r.summary,19)
+	paragraph(box,summary,19)
 	paragraph(box,"КҮШТІ ЖАҚТАРЫ",16,MUTED)
-	for s in r.strengths: paragraph(box,"+  "+s,19)
+	var strengths: Array = r.get("strengths",[])
+	for s in strengths: paragraph(box,"+  "+str(s),19)
 	paragraph(box,"ҚАТЕЛЕР",16,MUTED)
-	for m in r.mistakes: paragraph(box,"−  "+m,19)
+	var mistakes: Array = r.get("mistakes",[])
+	for m in mistakes: paragraph(box,"−  "+str(m),19)
 	paragraph(box,"ҰСЫНЫСТАР",16,MUTED)
-	for rec in r.recommendations: paragraph(box,"•  "+rec,19)
+	var recommendations: Array = r.get("recommendations",[])
+	for rec in recommendations: paragraph(box,"•  "+str(rec),19)
 
 func money(value) -> String:
 	var v = str(int(value))
