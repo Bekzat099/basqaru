@@ -35,6 +35,8 @@ var app_form_age: LineEdit
 var app_form_position: LineEdit
 var app_form_achievements: TextEdit
 var app_form_salary: LineEdit
+var q_count_label: Label
+var app_report_button: Button
 var poll_timer: Timer
 var api_url = "http://127.0.0.1:18765"
 var textures = {}
@@ -365,7 +367,10 @@ func show_applicant_interview():
 	label(str(app_session.age)+" жас",47,342,295,32,15,MUTED)
 	label(money(app_session.salary)+" / ай — қалаған",47,391,295,33,21,GOLD)
 	panel(1176,122,400,540)
-	label("ДИРЕКТОРМЕН СӨХБАТ",1200,137,350,26,15,GOLD)
+	label("ДИРЕКТОРМЕН СӨХБАТ",1200,137,270,26,15,GOLD)
+	q_count_label = label("Сұрақ 1 / 10",1420,137,130,26,15,GOLD)
+	q_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	update_q_count()
 	chat_status = label("Жауабыңызды жазыңыз",1200,169,350,25,14,MUTED)
 	chat_box = RichTextLabel.new()
 	chat_box.bbcode_enabled = false
@@ -382,14 +387,27 @@ func show_applicant_interview():
 	rect(question,468,715,490,46)
 	send_button = button("Жіберу →",974,715,157,46,ask_app,ui,true)
 	panel(24,804,1552,76)
-	button("Сөхбаттан шығу",44,818,240,48,func():
+	button("Сөхбаттан шығу",44,818,200,48,func():
 		if not busy: show_menu())
-	label("Директор сұрақ қояды — нақты жауап беріңіз",330,826,800,30,17,MUTED)
+	app_report_button = button("Қорытындыны алу  →",254,818,220,48,fetch_app_report)
+	app_report_button.disabled = true
+	label("Директор сұрақ қояды — нақты жауап беріңіз",510,826,900,30,17,MUTED)
+
+func update_q_count():
+	if not is_instance_valid(q_count_label): return
+	if app_session.get("finished",false):
+		q_count_label.text = "Сөхбат аяқталды"
+		return
+	var n = 1
+	for m in app_session.histories:
+		if m.role=="assistant": n += 1
+	q_count_label.text = "Сұрақ %d / 10" % mini(n,10)
 
 func refresh_app_chat():
 	chat_box.text = "Директор\n"+app_session.intro+"\n\n"
 	for m in app_session.histories:
 		chat_box.text += ("Сіз" if m.role=="user" else "Директор")+"\n"+m.content+"\n\n"
+	update_q_count()
 
 func ask_app():
 	if busy: return
@@ -412,7 +430,67 @@ func ask_app():
 	question.text = ""
 	chat_status.text = "Alem AI · жауап алынды"
 	refresh_app_chat()
+	if result.has("finished") and result.finished:
+		app_session.finished = true
+		chat_status.text = "Сөхбат аяқталды · Қорытынды дайындалуда…"
+		question.editable = false
+		question.placeholder_text = "Сөхбат аяқталды"
+		send_button.disabled = true
+		send_button.text = "Аяқталды"
+		update_q_count()
+		if is_instance_valid(app_report_button): app_report_button.disabled = false
+		await fetch_app_report()
+		return
 	question.grab_focus()
+
+func fetch_app_report():
+	if busy: return
+	busy = true
+	if is_instance_valid(app_report_button):
+		app_report_button.disabled = true
+		app_report_button.text = "Қорытынды дайындалуда…"
+	if is_instance_valid(chat_status): chat_status.text = "Қорытынды дайындалуда…"
+	var rep = await api("/applicant/report",{"session":app_session.id})
+	busy = false
+	if rep.has("error"):
+		if is_instance_valid(app_report_button):
+			app_report_button.disabled = false
+			app_report_button.text = "Қорытындыны алу  →"
+		if is_instance_valid(chat_status): chat_status.text = "Қорытынды алынбады. Қайталап көріңіз."
+		show_message("Қорытынды дайындалмады",rep.error+"\n«Қорытындыны алу» батырмасымен қайталауға болады.")
+		return
+	app_session.report = rep
+	show_applicant_report()
+
+func show_applicant_report():
+	screen = "applicant_report"
+	clear_ui()
+	photo()
+	panel(65,45,1470,810)
+	var r = app_session.report
+	label("BASQARU  /  СӨХБАТ ҚОРЫТЫНДЫСЫ",105,75,900,35,19,GOLD)
+	label(r.headline,105,145,1000,75,40,PAPER,ui,true)
+	label(str(r.score),105,250,270,150,115,GOLD)
+	label("/ 100 ұпай",110,405,270,40,25,MUTED)
+	label(app_session.first_name+" "+app_session.last_name,105,467,380,50,24)
+	label(app_session.position+"  ·  "+str(app_session.age)+" жас",105,520,380,50,18,MUTED)
+	button("Жаңа сөхбат  →",105,705,330,60,show_applicant_form,ui,true)
+	button("Мәзір",105,778,330,45,show_menu)
+	var scroll = ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	rect(scroll,520,160,960,640)
+	var box = VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation",15)
+	scroll.add_child(box)
+	paragraph(box,"ТАЛДАУ",16,MUTED)
+	paragraph(box,r.summary,19)
+	paragraph(box,"КҮШТІ ЖАҚТАРЫ",16,MUTED)
+	for s in r.strengths: paragraph(box,"+  "+s,19)
+	paragraph(box,"ҚАТЕЛЕР",16,MUTED)
+	for m in r.mistakes: paragraph(box,"−  "+m,19)
+	paragraph(box,"ҰСЫНЫСТАР",16,MUTED)
+	for rec in r.recommendations: paragraph(box,"•  "+rec,19)
 
 func money(value) -> String:
 	var v = str(int(value))
