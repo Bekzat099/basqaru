@@ -1,0 +1,15 @@
+Native Godot 4.4.1 project imported and launched successfully.
+15 distinct generated candidate scenes + empty office, all loaded in Godot.
+Alem gemma4 live check passed: 15 profiles, two context-aware Kazakh replies.
+Invalid/duplicate/oversized selections rejected; finalization locks changes.
+All 3003 five-person combinations evaluated: score range 46 to 88 in tested session.
+Native UI check passed: candidate navigation, dossiers, hire/unhire, five-person team, final report.
+Screenshots visually inspected: graphite menu, interview, dossier, report.
+Windows runtime is not tested on this Linux machine.
+Linux release exported and launched with a real saved interview. Windows release exported (not runtime-tested).
+Provider API key absent from both executable files.
+Dialogue model switched to Alem AI gpt-oss with separate endpoint and key; generation remains gemma4.
+Routing unit test passed. Native source and Linux release chat checks passed for button and Enter.
+Observed first responses: 2.91s and 3.024s; repeated release requests: 0.885s and 1.006s.
+Connection-failure UI test passed: controls recover and typed question remains.
+Both Linux and Windows exports updated; both API keys absent from executables.

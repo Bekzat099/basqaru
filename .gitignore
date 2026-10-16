@@ -1,0 +1,6 @@
+.env
+data/
+build/
+game/.godot/
+__pycache__/
+*.log
