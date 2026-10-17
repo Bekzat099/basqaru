@@ -1,9 +1,37 @@
 $ErrorActionPreference = 'Stop'
 Set-Location C:\Users\2022\basqaru
+
+# If the game is already running, just bring its window to the front
+$game = Get-Process -Name Basqaru -ErrorAction SilentlyContinue
+if ($game) {
+  try {
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class BqFocus {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+}
+"@
+    $focused = $false
+    foreach ($p in $game) {
+      if ($p.MainWindowHandle -ne [IntPtr]::Zero) {
+        [BqFocus]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
+        [BqFocus]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+        $focused = $true
+      }
+    }
+    if ($focused) { Write-Output 'game already running - window focused'; exit 0 }
+  } catch {
+    Write-Output "game already running (focus failed: $_)"
+  }
+  Write-Output 'game process exists without a window yet - do not start a second instance'
+  exit 0
+}
 if (-not (Test-Path data)) { New-Item -ItemType Directory data | Out-Null }
 
 # kill previous service and game instances
-Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like '*basqaru*server.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Output ("old service stopped: " + $_.ProcessId) }
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like '*service/server.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Output ("old service stopped: " + $_.ProcessId) }
 Get-Process -Name Basqaru -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
