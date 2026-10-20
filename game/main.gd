@@ -37,6 +37,14 @@ var app_form_achievements: TextEdit
 var app_form_salary: LineEdit
 var q_count_label: Label
 var app_report_button: Button
+var mic_button: Button
+var voice_button: Button
+var mic: AudioStreamMicrophone
+var mic_timer: Timer
+var mic_recording = false
+var voice_enabled = true
+var tts_player: AudioStreamPlayer
+var tts_pending = ""
 var poll_timer: Timer
 var api_url = "http://127.0.0.1:18765"
 var textures = {}
@@ -146,6 +154,13 @@ func button(text: String,x: float,y: float,w: float,h: float,callback: Callable,
 	return b
 
 func clear_ui():
+	if mic_recording:
+		mic_recording = false
+		if is_instance_valid(mic_timer): mic_timer.stop()
+		if mic != null: mic.stop()
+	if is_instance_valid(tts_player):
+		tts_player.stop()
+	tts_pending = ""
 	close_modal()
 	for c in ui.get_children():
 		ui.remove_child(c)
@@ -153,6 +168,13 @@ func clear_ui():
 
 func photo(id: int = -1):
 	var path = "res://assets/office.png" if id < 0 else "res://assets/candidate_%02d.png" % (id+1)
+	if not textures.has(path):
+		if ResourceLoader.exists(path): textures[path] = load(path)
+		else: textures[path] = load("res://assets/office.png")
+	background.texture = textures[path]
+
+func photo_director():
+	var path = "res://assets/director.jpg"
 	if not textures.has(path):
 		if ResourceLoader.exists(path): textures[path] = load(path)
 		else: textures[path] = load("res://assets/office.png")
@@ -203,7 +225,7 @@ func show_setup():
 func show_applicant_form():
 	screen = "applicant_form"
 	clear_ui()
-	photo()
+	photo_director()
 	panel(70,55,650,790)
 	label("BASQARU  /  ҮМІТКЕР АНКЕТАСЫ",110,85,560,30,17,GOLD)
 	label("Өзіңізді\ntаныстырыңыз",110,135,560,130,42,PAPER,ui,true)
@@ -354,7 +376,7 @@ func resume_applicant(sid: String):
 func show_applicant_interview():
 	screen = "applicant"
 	clear_ui()
-	photo()
+	photo_director()
 	panel(24,20,1552,75)
 	label("BASQARU  /  СҰХБАТ",46,38,260,36,25,GOLD)
 	label(app_session.position,320,35,900,40,24)
@@ -391,7 +413,11 @@ func show_applicant_interview():
 		if not busy: show_menu())
 	app_report_button = button("Қорытындыны алу  →",254,818,220,48,fetch_app_report)
 	app_report_button.disabled = true
-	label("Директор сұрақ қояды — нақты жауап беріңіз",510,826,900,30,17,MUTED)
+	mic_button = button("Сөйлеу",494,818,120,48,toggle_mic)
+	voice_button = button("Дыбыс: ИА",622,818,120,48,toggle_voice)
+	label("Микрофонмен жауап берсеңіз — директор да дауысмен жауап береді",750,826,760,30,16,MUTED)
+	if voice_enabled:
+		play_director_voice(app_session.get("intro",""))
 
 func update_q_count():
 	if not is_instance_valid(q_count_label): return
@@ -430,6 +456,7 @@ func ask_app():
 	question.text = ""
 	chat_status.text = "Alem AI · жауап алынды"
 	refresh_app_chat()
+	play_director_voice(result.answer)
 	if result.has("finished") and result.finished:
 		app_session.finished = true
 		chat_status.text = "Сұхбат аяқталды · Қорытынды дайындалуда…"
@@ -465,7 +492,7 @@ func fetch_app_report():
 func show_applicant_report():
 	screen = "applicant_report"
 	clear_ui()
-	photo()
+	photo_director()
 	panel(65,45,1470,810)
 	var r: Dictionary = app_session.get("report",{})
 	var score: int = int(r.get("score",0))
@@ -733,6 +760,8 @@ func show_rules():
 	paragraph(box,"35 — кәсіби дағды\n20 — сенімділік\n20 — командалық жұмыс\n15 — бес бағыттың қамтылуы\n10 — бюджет тәртібі",21)
 	paragraph(box,"Қабілет бағалары команданың орташа көрсеткішінен есептеледі. Әр қамтылған бағыт +3 ұпай. Бюджеттен 25% немесе одан көп асып кетсеңіз, бюджет ұпайы 0 болады.",17,MUTED)
 	paragraph(box,"80–100: мықты команда. 60–79: әлеуеті бар команда. 0–59: өзгеріс қажет. Баға жасқа, жынысқа немесе сырт келбетке байланысты емес.",18)
+	paragraph(box,"ҮМІТКЕР РЕТІНДЕ ОЙНАУ:",17,GOLD)
+	paragraph(box,"Анкета толтырасың: тегі, аты, лауазым, жетістіктер, қалаған айлық — ол сенің профильің. AI-директор осы бағыттың маманы ретінде 10 сұрақ қояды. Жауапты теріп немесе дауысыңмен бере аласың («Сөйлеу» батырмасы — сөйле, ИИ мәтінге айналдырады; «Дыбыс» — директордың дауысын қосу/өшіру). Сұхбат соңында 100 баллдық қорытынды: ұпай, талдау, күшті жақтар, нақты қателер және кеңестер.")
 	paragraph(box,"Қорытындыға дейін таңдауды өзгерте аласыз. Сұхбаттар, команда және сақталған жазбалар автоматты сақталады. F11 — толық экран, Esc — терезені жабу / мәзір.",16,MUTED)
 
 func confirm_finish():
@@ -784,6 +813,102 @@ func show_report():
 	for member in report.members:
 		paragraph(box,member.name+" · "+member.role,22,GOLD)
 		paragraph(box,"Күшті жағы: "+member.strength+"\nДамыту керек: "+member.weakness,18)
+
+func toggle_mic():
+	if mic_recording:
+		stop_mic()
+	else:
+		start_mic()
+
+func start_mic():
+	if mic == null:
+		mic = AudioStreamMicrophone.new()
+		mic.frequency = 16000
+		mic.stereo = false
+	var err = mic.start()
+	if err != OK:
+		if is_instance_valid(chat_status): chat_status.text = "Микрофон қосылмады (код %d)" % err
+		show_message("Микрофон қосылмады","Тіркелген микрофонды тексеріңіз. Windows рұқсат сұраса — беріңіз. Немесе қалтырып жауап жазыңыз.")
+		return
+	mic_recording = true
+	if is_instance_valid(mic_button): mic_button.text = "Тоқтату"
+	if is_instance_valid(chat_status): chat_status.text = "Дыбыс жазылып жатыр… (ең көбі 30 секунд, соңында «Тоқтату»)"
+	mic_timer = Timer.new()
+	mic_timer.one_shot = true
+	mic_timer.wait_time = 30.0
+	mic_timer.timeout.connect(stop_mic)
+	add_child(mic_timer)
+	mic_timer.start()
+
+func stop_mic():
+	if not mic_recording: return
+	mic_recording = false
+	if is_instance_valid(mic_timer): mic_timer.stop()
+	var data: PackedByteArray = mic.stop()
+	if is_instance_valid(mic_button): mic_button.text = "Сөйлеу"
+	if data.size() < 20000:
+		if is_instance_valid(chat_status): chat_status.text = "Жазба қысқа шықты — қайта айтсаңыз"
+		return
+	if is_instance_valid(chat_status): chat_status.text = "Сөзіңіз танылуда… (алғаш рет 20–30 сек)"
+	var res = await api("/stt",{"b64":Marshalls.raw_to_base64(data)})
+	if res.has("error"):
+		if is_instance_valid(chat_status): chat_status.text = "Дауыс танылмады: " + str(res.error)
+		return
+	var text: String = str(res.get("text","")).strip_edges()
+	if text.is_empty():
+		if is_instance_valid(chat_status): chat_status.text = "Еш нәрсе естілмеді — қайта айтсаңыз"
+		return
+	question.text = text
+	question.grab_focus()
+	if is_instance_valid(chat_status): chat_status.text = "Жазылып қалды — оқып «Жіберу» басыңыз"
+
+func toggle_voice():
+	voice_enabled = not voice_enabled
+	if is_instance_valid(voice_button):
+		voice_button.text = "Дыбыс: ИА" if voice_enabled else "Дыбыс: ЖОҚ"
+	if not voice_enabled and is_instance_valid(tts_player):
+		tts_player.stop()
+
+func play_director_voice(text: String):
+	if not voice_enabled or text.strip_edges().is_empty(): return
+	if is_instance_valid(tts_player) and tts_player.playing:
+		tts_pending = text
+		return
+	_tts_play(text)
+
+func _tts_play(text: String):
+	if tts_player == null:
+		tts_player = AudioStreamPlayer.new()
+		add_child(tts_player)
+		var on_done = func():
+			if not tts_player.playing and tts_pending != "":
+				var t = tts_pending
+				tts_pending = ""
+				_tts_play(t)
+		tts_player.finished.connect(on_done)
+	var res = await api_audio("/tts",{"text":text})
+	if res.has("error"):
+		if is_instance_valid(chat_status): chat_status.text = "Дыбыс қосылмады: " + str(res.error)
+		return
+	var mp3 = AudioStreamMP3.new()
+	mp3.data = res.get("data")
+	tts_player.stream = mp3
+	tts_player.play()
+
+func api_audio(path: String, payload: Dictionary) -> Dictionary:
+	var request = HTTPRequest.new()
+	request.timeout = 120
+	add_child(request)
+	var headers = PackedStringArray(["Content-Type: application/json", "X-Basqaru-Token: "+OS.get_environment("BASQARU_TOKEN")])
+	var err = request.request(api_url+path,headers,HTTPClient.METHOD_POST,JSON.stringify(payload))
+	if err != OK:
+		request.queue_free()
+		return {"error":"Қызметке қосылу мүмкін болмады."}
+	var response = await request.request_completed
+	request.queue_free()
+	if response[0] != HTTPRequest.RESULT_SUCCESS:
+		return {"error":"Дауыс қызметі жауап бермеді. Қайталап көріңіз."}
+	return {"data": response[3]}
 
 func api(path: String, payload: Dictionary) -> Dictionary:
 	var request = HTTPRequest.new()

@@ -1,6 +1,7 @@
 .env
 data/
 build/
+models/
 game/.godot/
 __pycache__/
 *.log

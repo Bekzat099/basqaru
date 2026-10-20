@@ -28,6 +28,51 @@ def _dbg(where, e):
             traceback.print_exc(file=f)
     except Exception: pass
 
+# ---- voice: STT (faster-whisper, CPU) + TTS (edge-tts neural voices) ----
+_STT_LOCK=threading.Lock(); _STT_MODEL=None
+STT_MODEL_NAME=os.environ.get('BASQARU_WHISPER','small')
+STT_LANG=os.environ.get('BASQARU_STT_LANG','kk')
+STT_BEAM=int(os.environ.get('BASQARU_STT_BEAM','2'))
+STT_PROMPT='Бұл қазақ тіліндегі жұмыс сұхбаты. Сөздер: үміткер, лауазым, тәжірибе, жоба, команда, нәтиже, айлық, қызмет, білім, маман.'
+def _stt_model_path():
+    local=ROOT/'models'/('faster-whisper-'+STT_MODEL_NAME)
+    if (local/'model.bin').exists(): return str(local)
+    return STT_MODEL_NAME
+def stt_transcribe(wav_bytes):
+    """Дауысты сөйлеуді мәтінге айналдырады (Whisper, CPU, алғаш рет модель жүктеледі)."""
+    global _STT_MODEL
+    with _STT_LOCK:
+        if _STT_MODEL is None:
+            from faster_whisper import WhisperModel
+            _STT_MODEL=WhisperModel(_stt_model_path(),device='cpu',compute_type='int8')
+            _dbg('stt','model loaded: '+_stt_model_path())
+        import io
+        segments,_=_STT_MODEL.transcribe(io.BytesIO(wav_bytes),beam_size=STT_BEAM,language=STT_LANG,initial_prompt=STT_PROMPT)
+        text=' '.join(s.text.strip() for s in segments).strip()
+        return text
+
+TTS_VOICE=os.environ.get('BASQARU_TTS_VOICE','kk-KZ-AigulNeural')
+def tts_synthesize(text,voice=''):
+    """Адам дыбысына ұқсас нейрондық дауыспен MP3 қайтарады (Microsoft Edge voices)."""
+    import asyncio
+    import edge_tts
+    v=(voice or TTS_VOICE)
+    async def _run():
+        out=[]
+        async for chunk in edge_tts.Communicate(text,v).stream():
+            if chunk.get('type')=='audio': out.append(chunk['data'])
+        return b''.join(out)
+    last=RuntimeError('TTS: белгісіз қате')
+    for _ in range(2):
+        try:
+            mp3=asyncio.run(_run())
+            if len(mp3)>=1000: return mp3
+            last=RuntimeError('TTS: бос жауап (%d байт)'%len(mp3))
+        except RuntimeError as e: last=e
+        except Exception as e: last=RuntimeError('TTS: '+str(e)[:120])
+        time.sleep(1)
+    raise last
+
 def llm(messages, max_tokens=2200, *, purpose='generation'):
     chat = purpose == 'chat'
     model = os.environ.get('ALEM_CHAT_MODEL','gpt-oss') if chat else os.environ.get('ALEM_MODEL','gemma4')
@@ -238,8 +283,38 @@ class Handler(BaseHTTPRequestHandler):
         if TOKEN and not secrets.compare_digest(self.headers.get('X-Basqaru-Token',''),TOKEN): return self.respond({'error':'Unauthorized'},401)
         try:
             length=int(self.headers.get('Content-Length',0))
+            raw=self.rfile.read(length) if length>0 else b''
+            if self.path=='/stt':
+                if not 4000<=length<=12_000_000: raise ValueError('Дыбыс: 4 КБ – 12 МБ (шамамен 5–60 секунд) болуы керек.')
+                audio=raw
+                _is_audio=lambda d: d[:4]==b'RIFF' or d[:3]==b'ID3' or (len(d)>1 and d[0]==0xFF and (d[1]&0xE0)==0xE0) or d[:4]==b'fLaC'
+                if not _is_audio(raw):
+                    try:
+                        dj=json.loads(raw)
+                    except Exception:
+                        raise ValueError('Аудио (WAV/MP3) немесе JSON {"b64": ...} күтілді.')
+                    if not isinstance(dj,dict) or not dj.get('b64'): raise ValueError('JSON: {"b64": "<base64 аудио>"} форматы керек.')
+                    import base64
+                    audio=base64.b64decode(str(dj['b64']))
+                if not _is_audio(audio): raise ValueError('Аудио формат табылмады (WAV/MP3 күтілді).')
+                text=stt_transcribe(audio)
+                return self.respond({'text':text})
+            if self.path=='/tts':
+                if length>20000: raise ValueError('Текст тым ұзын.')
+                d=json.loads(raw)
+                if not isinstance(d,dict): raise ValueError('Invalid request')
+                text=str(d.get('text','')).strip()
+                if not 1<=len(text)<=3000: raise ValueError('Текст: 1–3000 таңба.')
+                voice=str(d.get('voice',''))[:60]
+                mp3=tts_synthesize(text,voice)
+                self.send_response(200)
+                self.send_header('Content-Type','audio/mpeg')
+                self.send_header('Content-Length',str(len(mp3)))
+                self.end_headers()
+                self.wfile.write(mp3)
+                return
             if length>12000: raise ValueError('Сұрау тым ұзын.')
-            d=json.loads(self.rfile.read(length))
+            d=json.loads(raw)
             if not isinstance(d,dict): raise ValueError('Invalid request')
             if self.path=='/new':
                 name=str(d.get('company','')).strip();desc=str(d.get('description','')).strip()
