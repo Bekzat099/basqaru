@@ -78,6 +78,9 @@ def llm(messages, max_tokens=2200, *, purpose='generation'):
     model = os.environ.get('ALEM_CHAT_MODEL','gpt-oss') if chat else os.environ.get('ALEM_MODEL','gemma4')
     url = os.environ.get('ALEM_CHAT_URL','https://llm.alem.ai/chat/completions') if chat else os.environ.get('ALEM_URL','https://llm.alem.ai/v1/chat/completions')
     key = os.environ.get('ALEM_CHAT_API_KEY','') if chat else os.environ.get('ALEM_API_KEY','')
+    # Qwen3: /no_think отключает «размышления» модели — ответы в 2–4 раза быстрее
+    if messages and messages[0].get('role')=='system' and '/no_think' not in str(messages[0]['content']):
+        messages=[dict(messages[0],content=str(messages[0]['content'])+'\n/no_think')]+list(messages[1:])
     payload={'model':model,'messages':messages,'temperature':0.75,'max_tokens':max_tokens}
     req=urllib.request.Request(url,data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
     try:
@@ -145,7 +148,9 @@ def get_session(sid):
         return SESSIONS[sid]
 
 def public(s):
-    return {k:s[k] for k in ['id','company','description','budget','selected','histories','notes','finished']} | {'candidates':[{k:c[k] for k in PUBLIC} for c in s['candidates']], 'report':s.get('report')}
+    out={k:s[k] for k in ['id','company','description','budget','selected','histories','notes','finished']}
+    out['offers']=s.get('offers',{})
+    return out | {'candidates':[{k:c[k] for k in PUBLIC} for c in s['candidates']], 'report':s.get('report')}
 
 APPLICANT_SESSIONS={}
 def app_save(s):
@@ -170,7 +175,7 @@ def applicant_generate(job,last,first,age,position,achievements,salary):
         last_err=None; plan=None
         for attempt in range(5):
             try:
-                text=llm([{'role':'system','content':prompt},{'role':'user','content':'Жоспарды дайында.'}],12000)
+                text=llm([{'role':'system','content':prompt},{'role':'user','content':'Жоспарды дайында.'}],8000)
                 plan=json.loads(text[text.find('{'):text.rfind('}')+1])
                 if not isinstance(plan,dict): plan=None
                 break
@@ -204,7 +209,7 @@ def applicant_report(a):
     last=None
     for attempt in range(5):
         try:
-            text=llm([{'role':'system','content':'Тек JSON объект қайтар, басқа ештеңе жазба.'},{'role':'user','content':prompt}],16000)
+            text=llm([{'role':'system','content':'Тек JSON объект қайтар, басқа ештеңе жазба.'},{'role':'user','content':prompt}],8000)
             obj=json.loads(text[text.find('{'):text.rfind('}')+1])
             if not isinstance(obj,dict): raise ValueError('Invalid object')
             score=max(0,min(100,int(obj.get('score',0))))
@@ -232,7 +237,7 @@ def generate(job,company,description):
             last=None
             for attempt in range(5):
                 try:
-                    items=json_reply(llm([{'role':'system','content':prompt},{'role':'user','content':user}],32000))
+                    items=json_reply(llm([{'role':'system','content':prompt},{'role':'user','content':user}],16000))
                     if len(items)!=5: raise ValueError('Expected five candidates')
                     mapped={int(c['id']):c for c in items}
                     result=[]
@@ -248,7 +253,7 @@ def generate(job,company,description):
                 except (ValueError,KeyError,RuntimeError,TypeError) as e: last=e; time.sleep([2,5,10,15,20][attempt])
             raise RuntimeError(str(last))
         with ThreadPoolExecutor(max_workers=2) as pool: candidates=sum(list(pool.map(batch,[0,5,10])),[])
-        s={'id':secrets.token_hex(16),'company':company,'description':description,'budget':2200000,'candidates':candidates,'selected':[],'histories':{},'notes':{},'finished':False}
+        s={'id':secrets.token_hex(16),'company':company,'description':description,'budget':2200000,'candidates':candidates,'selected':[],'histories':{},'notes':{},'offers':{},'finished':False}
         with LOCK:
             SESSIONS[s['id']]=s;save(s);JOBS[job].update(status='ready',session=s['id'])
     except Exception as e:
@@ -271,6 +276,40 @@ def score(s):
         if min(c['stats'].values())<70: advice.append(c['name']+': '+c['weakness'])
     if not advice: advice.append('Негізгі бағыттар қамтылған. Енді нақты мақсаттар мен жауапкершілікті бөліңіз.')
     return {'score':total,'headline':headline,'parts':parts,'advice':advice,'spent':spent,'members':[{'name':c['name'],'role':c['role'],'stats':c['stats'],'strength':c['strength'],'weakness':c['weakness']} for c in team]}
+
+def offer_question(s, c):
+    """Устраившийся кандидат задаёт директору встречный вопрос."""
+    prompt=("Сен — «"+s['company']+"» компаниясына «"+str(c.get('role',''))+"» лауазымына жұмысқа орналасқан "+str(c.get('name',''))+". Профильің: "+str(c.get('summary',''))[:600]+". Мінезің: "+str(c.get('personality',''))[:300]+".\nДиректор сені жұмысқа қабылдады. Келісімшартқа қол қоюдан бұрын директорға БІР маңызды сұрақ қой: жұмыс жағдайлары, команда мен міндеттер, өсу мүмкіндігі, бюджет, компанияның тұрақтылығы немесе «неге осы компания — мені басқа компаниялар да шақырып жатыр». Стиль: нақты, сенімді, сәл бәсекелестік. Қазақ тілінде, бірінші жақта, 1–2 сөйлем. Ешнәрсе қоспа — тек сұрақтың мәтінін қайтар.")
+    last=None
+    for attempt in range(4):
+        try:
+            t=llm([{'role':'system','content':'Тек қазақ тілінде жауап бер. Қосымша сөз немесе түсіндірме жазба.'},{'role':'user','content':prompt}],2500,purpose='chat')
+            t=t.strip().strip('"').strip('«»').strip()
+            if len(t)>=15: return t
+            last=ValueError('Сұрақ қысқа шықты')
+        except (ValueError,RuntimeError,TypeError) as e: last=e
+        time.sleep(2)
+    raise RuntimeError('Үміткер сұрағы алынбады: '+str(last)[:100])
+
+def offer_response(s, c, answer):
+    """Кандидат директордың жауабына реакция көрсетеді. Қайтарады: (reaction, text)."""
+    prompt=("Сен — «"+s['company']+"» компаниясына жұмысқа орналасқан "+str(c.get('name',''))+" («"+str(c.get('role',''))+"»). Мінезің: "+str(c.get('personality',''))[:300]+".\nСен директорға сұрақ қойдың: «"+str(c.get('question_text',''))+"»\nДиректордың жауабы: «"+answer+"»\nДиректордың жауабына реакцияңды жаз: жауап қанағаттандырса — ризалық білдіріп, жұмысқа дайын екеніңді айтып, бір нақты нәрсені ата; жауапта бос орын немесе жалқаулық болса — сыпайы, бірақ нақты күмәң білдіріп, кепілдік сұра; жауап сұраққа тиймесе — бір нақты жағдайды атап, толықтыруды сұра. Қазақ тілінде, бірінші жақта, 2–4 сөйлем.\nТек былай JSON қайтар: {\"reaction\": \"accept\" | \"doubt\" | \"clarify\", \"text\": \"...\"}")
+    last=None
+    for attempt in range(4):
+        try:
+            t=llm([{'role':'system','content':'Тек JSON объект қайтар, басқа ештеңе жазба.'},{'role':'user','content':prompt}],2500,purpose='chat')
+            obj=json.loads(t[t.find('{'):t.rfind('}')+1])
+            if not isinstance(obj,dict): raise ValueError('Invalid object')
+            reaction=str(obj.get('reaction','accept')).strip()
+            if reaction not in ('accept','doubt','clarify'): reaction='accept'
+            text=str(obj.get('text','')).strip()
+            if len(text)<10: raise ValueError('Жауап қысқа')
+            return reaction, text
+        except (ValueError,RuntimeError,TypeError,KeyError) as e: last=e
+        time.sleep(2)
+    raise RuntimeError('Үміткер жауабы алынбады: '+str(last)[:100])
+
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
@@ -354,7 +393,7 @@ class Handler(BaseHTTPRequestHandler):
                 answer=None; a_err=None
                 for _ in range(3):
                     try:
-                        answer=llm([{'role':'system','content':system}]+a['histories'][-20:]+[{'role':'user','content':message}],16000,purpose='chat'); break
+                        answer=llm([{'role':'system','content':system}]+a['histories'][-20:]+[{'role':'user','content':message}],8000,purpose='chat'); break
                     except RuntimeError as e: a_err=e; time.sleep(2)
                 if answer is None: raise a_err
                 with LOCK:
@@ -390,7 +429,7 @@ class Handler(BaseHTTPRequestHandler):
                     answer=None; chat_err=None
                     for _ in range(3):
                         try:
-                            answer=llm([{'role':'system','content':system}]+history[-20:]+[{'role':'user','content':message}],16000,purpose='chat'); break
+                            answer=llm([{'role':'system','content':system}]+history[-20:]+[{'role':'user','content':message}],8000,purpose='chat'); break
                         except RuntimeError as e: chat_err=e; time.sleep(2)
                     if answer is None: raise chat_err
                     with LOCK:
@@ -398,6 +437,34 @@ class Handler(BaseHTTPRequestHandler):
                         s['histories'].setdefault(str(cid),[]).extend([{'role':'user','content':message},{'role':'assistant','content':answer}]);save(s)
                     return self.respond({'answer':answer})
                 finally: chat_lock.release()
+            if self.path=='/offer':
+                cid=int(d.get('candidate',-1))
+                if not 0<=cid<15: raise ValueError('Үміткер табылмады.')
+                with LOCK:
+                    c=dict(s['candidates'][cid])
+                    selected=cid in s['selected']
+                    off=dict(s.get('offers',{}).get(str(cid),{}))
+                if not selected: raise ValueError('Бұл үміткер командада жоқ — алдымен қабылдаңыз.')
+                if not off.get('question'):
+                    c['question_text']=''
+                    q=offer_question(s,c)
+                    with LOCK:
+                        if s['finished']: raise ValueError('Іріктеу аяқталды.')
+                        s.setdefault('offers',{})[str(cid)]={'question':q}
+                        save(s)
+                    off={'question':q}
+                answer=str(d.get('answer','')).strip()
+                if answer:
+                    if not 1<=len(answer)<=1500: raise ValueError('Жауап: 1–1500 таңба.')
+                    if not off.get('answer'):
+                        c['question_text']=off.get('question','')
+                        reaction,text=offer_response(s,c,answer)
+                        with LOCK:
+                            if s['finished']: raise ValueError('Іріктеу аяқталды.')
+                            s.setdefault('offers',{})[str(cid)]={'question':off.get('question',''),'answer':answer,'reaction':reaction,'response':text}
+                            save(s)
+                        off={'question':off.get('question',''),'answer':answer,'reaction':reaction,'response':text}
+                return self.respond({'question':off.get('question',''),'answer':off.get('answer',''),'response':off.get('response',''),'reaction':off.get('reaction','')})
             with LOCK:
                 if self.path=='/team':
                     chosen=d.get('selected',[])

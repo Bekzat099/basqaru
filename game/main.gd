@@ -1,10 +1,14 @@
 extends Control
 
-const INK = Color("22242b")
-const GOLD = Color("b6c9df")
+const INK = Color("16181d")
+const GOLD = Color("d8b25c")
+const ACCENT = Color("c9a04a")
+const ACCENT_HOVER = Color("ddb864")
+const ACCENT_PRESSED = Color("b18c3a")
 const PAPER = Color("f1f2f5")
 const MUTED = Color("aeb3c0")
 const TEAL = Color("667b95")
+const PANEL_BG = Color("1e2129f2")
 var body = preload("res://assets/body.ttf")
 var display = preload("res://assets/display.ttf")
 var background: TextureRect
@@ -57,16 +61,16 @@ func _ready():
 	t.set_color("font_color", "Button", PAPER)
 	t.set_color("font_hover_color", "Button", Color.WHITE)
 	t.set_color("font_disabled_color", "Button", Color("747985"))
-	t.set_stylebox("normal", "Button", style(Color("383c48"), 8))
-	t.set_stylebox("hover", "Button", style(Color("4b5363"), 8))
-	t.set_stylebox("pressed", "Button", style(Color("58677b"), 8))
-	t.set_stylebox("disabled", "Button", style(Color("2c2f38"), 8))
-	var focus = style(Color.TRANSPARENT, 8)
-	focus.border_color = GOLD
+	t.set_stylebox("normal", "Button", style(Color("333947"), 10, false))
+	t.set_stylebox("hover", "Button", style(Color("48546a"), 10, false))
+	t.set_stylebox("pressed", "Button", style(Color("55647e"), 10, false))
+	t.set_stylebox("disabled", "Button", style(Color("2a2e38"), 10, false))
+	var focus = style(Color.TRANSPARENT, 10, false)
+	focus.border_color = ACCENT
 	focus.set_border_width_all(2)
 	t.set_stylebox("focus", "Button", focus)
 	for kind in ["LineEdit", "TextEdit"]:
-		t.set_stylebox("normal", kind, style(Color("2b2e38"), 8))
+		t.set_stylebox("normal", kind, style(Color("282c37"), 10, false))
 		t.set_stylebox("focus", kind, focus)
 		t.set_color("font_color", kind, PAPER)
 		t.set_color("font_placeholder_color", kind, MUTED)
@@ -79,6 +83,21 @@ func _ready():
 	background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
+	# мягкий градиент сверху-вниз — читаемость текста на фото
+	var grad = Gradient.new()
+	grad.set_color(0, Color(0.04,0.045,0.06,0.28))
+	grad.set_color(1, Color(0.02,0.02,0.03,0.52))
+	var gtex = GradientTexture2D.new()
+	gtex.gradient = grad
+	gtex.fill_from = Vector2(0,0)
+	gtex.fill_to = Vector2(0,1)
+	var shade_rect = TextureRect.new()
+	shade_rect.texture = gtex
+	shade_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	shade_rect.stretch_mode = TextureRect.STRETCH_SCALE
+	shade_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(shade_rect)
 	ui = Control.new()
 	ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(ui)
@@ -108,7 +127,7 @@ func _ready():
 		if arg == "--qa-quit":
 			get_tree().quit()
 
-func style(color: Color, radius: int = 12) -> StyleBoxFlat:
+func style(color: Color, radius: int = 12, shadowed: bool = true) -> StyleBoxFlat:
 	var s = StyleBoxFlat.new()
 	s.bg_color = color
 	s.set_corner_radius_all(radius)
@@ -116,6 +135,12 @@ func style(color: Color, radius: int = 12) -> StyleBoxFlat:
 	s.content_margin_right = 16
 	s.content_margin_top = 10
 	s.content_margin_bottom = 10
+	s.border_color = Color(1,1,1,0.07)
+	s.set_border_width_all(1)
+	if shadowed:
+		s.shadow_color = Color(0,0,0,0.42)
+		s.shadow_size = 18
+		s.shadow_offset = Vector2(0,6)
 	return s
 
 func rect(c: Control, x: float, y: float, w: float, h: float, parent: Node = ui):
@@ -124,9 +149,9 @@ func rect(c: Control, x: float, y: float, w: float, h: float, parent: Node = ui)
 	c.size = Vector2(w,h)
 	return c
 
-func panel(x: float,y: float,w: float,h: float,parent: Node = ui, color: Color = Color("22242bf2")) -> Panel:
+func panel(x: float,y: float,w: float,h: float,parent: Node = ui, color: Color = PANEL_BG) -> Panel:
 	var p = Panel.new()
-	p.add_theme_stylebox_override("panel", style(color))
+	p.add_theme_stylebox_override("panel", style(color, 16))
 	rect(p,x,y,w,h,parent)
 	return p
 
@@ -146,10 +171,11 @@ func button(text: String,x: float,y: float,w: float,h: float,callback: Callable,
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	b.pressed.connect(callback)
 	if accent:
-		b.add_theme_stylebox_override("normal",style(GOLD,8))
-		b.add_theme_stylebox_override("hover",style(Color("d2dfef"),8))
-		b.add_theme_color_override("font_color",INK)
-		b.add_theme_color_override("font_hover_color",INK)
+		b.add_theme_stylebox_override("normal",style(ACCENT,10,false))
+		b.add_theme_stylebox_override("hover",style(ACCENT_HOVER,10,false))
+		b.add_theme_stylebox_override("pressed",style(ACCENT_PRESSED,10,false))
+		b.add_theme_color_override("font_color",Color("181a1f"))
+		b.add_theme_color_override("font_hover_color",Color("0f1013"))
 	rect(b,x,y,w,h,parent)
 	return b
 
@@ -395,7 +421,7 @@ func show_applicant_interview():
 	update_q_count()
 	chat_status = label("Жауабыңызды жазыңыз",1200,169,350,25,14,MUTED)
 	chat_box = RichTextLabel.new()
-	chat_box.bbcode_enabled = false
+	chat_box.bbcode_enabled = true
 	chat_box.scroll_following = true
 	chat_box.add_theme_font_size_override("normal_font_size",18)
 	rect(chat_box,1200,207,350,337)
@@ -430,9 +456,10 @@ func update_q_count():
 	q_count_label.text = "Сұрақ %d / 10" % mini(n,10)
 
 func refresh_app_chat():
-	chat_box.text = "Директор\n"+app_session.intro+"\n\n"
+	chat_box.text = "[color=#d8b25c][b]Директор[/b][/color]\n"+app_session.intro+"\n\n"
 	for m in app_session.histories:
-		chat_box.text += ("Сіз" if m.role=="user" else "Директор")+"\n"+m.content+"\n\n"
+		var who = "[color=#9db4d8][b]Сіз[/b][/color]" if m.role=="user" else "[color=#d8b25c][b]Директор[/b][/color]"
+		chat_box.text += who+"\n"+m.content+"\n\n"
 	update_q_count()
 
 func ask_app():
@@ -441,7 +468,7 @@ func ask_app():
 	if message.is_empty(): return
 	busy = true
 	set_chat_waiting(true)
-	chat_box.text += "Сіз\n"+message+"\n\nДиректор ойланып жатыр…\n"
+	chat_box.text += "[color=#9db4d8][b]Сіз[/b][/color]\n"+message+"\n\nДиректор ойланып жатыр…\n"
 	var result = await api("/applicant/chat",{"session":app_session.id,"message":message})
 	busy = false
 	set_chat_waiting(false)
@@ -566,7 +593,7 @@ func show_interview():
 	label("ӘҢГІМЕЛЕСУ",1200,137,350,26,15,GOLD)
 	chat_status = label("Сұрағыңызды қойыңыз",1200,169,350,25,14,MUTED)
 	chat_box = RichTextLabel.new()
-	chat_box.bbcode_enabled = false
+	chat_box.bbcode_enabled = true
 	chat_box.scroll_following = true
 	chat_box.add_theme_font_size_override("normal_font_size",18)
 	rect(chat_box,1200,207,350,337)
@@ -588,14 +615,88 @@ func show_interview():
 	var hired = c.id in session.selected
 	var choose = button("Командадан шығару" if hired else "Командаға қабылдау",890,818,340,48,toggle_hire,ui,not hired)
 	choose.disabled = not hired and session.selected.size()>=5
+	if hired:
+		var offc = session.get("offers",{}).get(str(int(c.id)),{})
+		if offc.get("question","")!="" and offc.get("answer","")=="":
+			button("Сұраққа жауап →",649,818,226,48,func(): open_offer(int(c.id)),ui,true)
 	var finish = button("Қорытынды →",1246,818,307,48,confirm_finish)
 	finish.disabled = session.selected.size()!=5
+	if hired and session.get("offers",{}).get(str(int(c.id)),{}).get("question","")=="":
+		open_offer(int(c.id))
+
+func open_offer(cid: int):
+	if busy: return
+	busy = true
+	var result = await api("/offer",{"session":session.id,"candidate":cid})
+	busy = false
+	if result.has("error"):
+		show_message("Ұсыныс сұхбаты алынбады",result.error)
+		return
+	if not session.has("offers"): session["offers"]={}
+	session["offers"][str(cid)]={"question":str(result.get("question","")),"answer":str(result.get("answer","")),"response":str(result.get("response","")),"reaction":str(result.get("reaction",""))}
+	refresh_chat()
+	_show_offer_dialog(cid,session["offers"][str(cid)])
+
+func _show_offer_dialog(cid: int, data: Dictionary):
+	var cname = str(session.candidates[cid].name)
+	var box = make_modal(cname+" — ұсыныс сұхбаты",900,660)
+	paragraph(box,"Кандидат жұмысқа орналасқанымен, келісімшартқа қол қоюдан бұрын бір сұрақ қояды. Жауабың оның шешіміне әсер етеді.",16,MUTED)
+	paragraph(box,"„"+str(data.get("question",""))+"«",20,GOLD,true)
+	if str(data.get("answer",""))=="":
+		paragraph(box,"Директор ретінде жауабыңызды жазыңыз:",17)
+		var le = LineEdit.new()
+		le.placeholder_text = "Жауабыңыз… (мысалы: команда, міндеттер, өсу мүмкіндігі туралы)"
+		le.max_length = 1500
+		box.add_child(le)
+		var b = Button.new()
+		b.text = "Жауап беру →"
+		b.custom_minimum_size.y = 52
+		box.add_child(b)
+		b.pressed.connect(func(): submit_offer_answer(cid, le))
+	else:
+		paragraph(box,"Сіз: "+str(data.get("answer","")),17,Color("9db4d8"))
+		paragraph(box,cname+": "+str(data.get("response","")),19,PAPER,true)
+		var r = str(data.get("reaction",""))
+		var rt = "✓ Риза — жұмысқа дайын" if r=="accept" else ("✎ Күмәні бар — кепілдік сұрап тұр" if r=="doubt" else "? Нақтылау сұрады")
+		var rc = Color("9fd08c") if r=="accept" else (Color("efb68c") if r=="doubt" else PAPER)
+		paragraph(box,rt,17,rc)
+		var b = Button.new()
+		b.text = "Жабу"
+		b.custom_minimum_size.y = 52
+		box.add_child(b)
+		b.pressed.connect(close_modal)
+
+func submit_offer_answer(cid: int, le: LineEdit):
+	if busy: return
+	var txt = le.text.strip_edges()
+	if txt.is_empty(): return
+	busy = true
+	var res = await api("/offer",{"session":session.id,"candidate":cid,"answer":txt})
+	busy = false
+	if res.has("error"):
+		show_message("Жауап жетпеді",res.error)
+		return
+	if not session.has("offers"): session["offers"]={}
+	session["offers"][str(cid)]={"question":str(res.get("question","")),"answer":str(res.get("answer","")),"response":str(res.get("response","")),"reaction":str(res.get("reaction",""))}
+	close_modal()
+	refresh_chat()
+	_show_offer_dialog(cid,session["offers"][str(cid)])
 
 func refresh_chat():
 	var c = candidate()
-	chat_box.text = c.name+"\n"+c.intro+"\n\n"
+	chat_box.text = "[color=#d8b25c][b]"+c.name+"[/b][/color]\n"+c.intro+"\n\n"
 	for m in session.histories.get(str(int(c.id)),[]):
-		chat_box.text += ("Сіз" if m.role=="user" else c.name)+"\n"+m.content+"\n\n"
+		var who = "[color=#9db4d8][b]Сіз[/b][/color]" if m.role=="user" else "[color=#d8b25c][b]"+c.name+"[/b][/color]"
+		chat_box.text += who+"\n"+m.content+"\n\n"
+	var off = session.get("offers",{}).get(str(int(c.id)),{})
+	if off.get("question","")!="":
+		chat_box.text += "[color=#d8b25c][b]🤝 "+c.name+" ұсынысты қабылдады:[/b][/color]\n"+str(off.get("question",""))+"\n\n"
+		if off.get("answer","")!="":
+			chat_box.text += "[color=#9db4d8][b]Сіз:[/b][/color]\n"+str(off.get("answer",""))+"\n\n"
+			chat_box.text += "[color=#d8b25c][b]"+c.name+":[/b][/color]\n"+str(off.get("response",""))+"\n\n"
+			var r = str(off.get("reaction",""))
+			var rt = "✓ Риза — жұмысқа дайын" if r=="accept" else ("✎ Күмәні бар — кепілдік сұрап тұр" if r=="doubt" else "? Нақтылау сұрады")
+			chat_box.text += "[color=#d8b25c]"+rt+"[/color]\n\n"
 
 func navigate(delta: int):
 	if busy: return
@@ -608,7 +709,7 @@ func ask(preset: String=""):
 	if message.is_empty(): return
 	busy = true
 	set_chat_waiting(true)
-	chat_box.text += "Сіз\n"+message+"\n\nЖауап беріп жатыр…\n"
+	chat_box.text += "[color=#9db4d8][b]Сіз[/b][/color]\n"+message+"\n\nЖауап беріп жатыр…\n"
 	var result = await api("/chat",{"session":session.id,"candidate":int(candidate().id),"message":message})
 	busy = false
 	set_chat_waiting(false)
@@ -648,12 +749,12 @@ func make_modal(title_text: String, width: int=860, height: int=730) -> VBoxCont
 	modal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(modal)
 	var shade = ColorRect.new()
-	shade.color = Color(0.025,0.026,0.035,0.78)
+	shade.color = Color(0.02,0.022,0.032,0.82)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	modal.add_child(shade)
 	var x = (1600-width)/2.0
 	var y = (900-height)/2.0
-	panel(x,y,width,height,modal,Color("22242b"))
+	panel(x,y,width,height,modal)
 	label(title_text,x+32,y+24,width-125,60,29,PAPER,modal,true)
 	button("×",x+width-78,y+25,48,44,close_modal,modal)
 	var scroll = ScrollContainer.new()
@@ -665,12 +766,13 @@ func make_modal(title_text: String, width: int=860, height: int=730) -> VBoxCont
 	scroll.add_child(box)
 	return box
 
-func paragraph(box: VBoxContainer,text: String,fs: int=19,color: Color=PAPER) -> Label:
+func paragraph(box: VBoxContainer,text: String,fs: int=19,color: Color=PAPER,serif: bool=false) -> Label:
 	var l = Label.new()
 	l.text = text
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.add_theme_font_size_override("font_size",fs)
 	l.add_theme_color_override("font_color",color)
+	if serif: l.add_theme_font_override("font",display)
 	box.add_child(l)
 	return l
 
