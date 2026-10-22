@@ -40,6 +40,9 @@ var app_form_position: LineEdit
 var app_form_achievements: TextEdit
 var app_form_salary: LineEdit
 var q_count_label: Label
+var app_top_chip: Label
+var dots_menu: Control = null
+var capture_wait = 2.0
 var app_report_button: Button
 var mic_button: Button
 var voice_button: Button
@@ -115,8 +118,13 @@ func _ready():
 		if arg.begins_with("--qa-session="):
 			last_session = arg.trim_prefix("--qa-session=")
 			await resume_game()
+		if arg.begins_with("--qa-app-session="):
+			job_is_applicant = true
+			await resume_applicant(arg.trim_prefix("--qa-app-session="))
+		if arg.begins_with("--capture-wait="):
+			capture_wait = float(arg.trim_prefix("--capture-wait="))
 		if arg.begins_with("--capture="):
-			await get_tree().create_timer(2.0).timeout
+			await get_tree().create_timer(capture_wait).timeout
 			get_viewport().get_texture().get_image().save_png(arg.trim_prefix("--capture="))
 		if arg == "--qa-actions":
 			await qa_actions()
@@ -124,6 +132,12 @@ func _ready():
 			show_dossier()
 		if arg == "--qa-team":
 			show_team()
+		if arg == "--qa-menu":
+			open_dots_menu([
+				["Команда  %d / 5" % session.selected.size(), show_team],
+				["Ереже", show_rules],
+				["Мәзір", show_menu]
+			])
 		if arg == "--qa-quit":
 			get_tree().quit()
 
@@ -179,7 +193,103 @@ func button(text: String,x: float,y: float,w: float,h: float,callback: Callable,
 	rect(b,x,y,w,h,parent)
 	return b
 
+func hairline(x: float, y: float, w: float):
+	var l = ColorRect.new()
+	l.color = Color(0.85,0.7,0.36,0.35)
+	l.position = Vector2(x,y)
+	l.size = Vector2(w,2)
+	ui.add_child(l)
+
+func chip(x: float, y: float, w: float, h: float, text: String, fs: int=14, color: Color=PAPER) -> Panel:
+	var p = Panel.new()
+	var s = StyleBoxFlat.new()
+	s.bg_color = Color(1,1,1,0.055)
+	s.set_corner_radius_all(10)
+	s.border_color = Color(0.85,0.7,0.36,0.35)
+	s.set_border_width_all(1)
+	p.add_theme_stylebox_override("panel", s)
+	rect(p,x,y,w,h)
+	var l = Label.new()
+	l.name = "text"
+	l.add_theme_font_size_override("font_size",fs)
+	l.add_theme_color_override("font_color",color)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect(l,2,0,w-4,h,p)
+	l.text = text
+	return p
+
+func progress_dots(x: float, y: float, n: int, current: int, selected: Array):
+	for i in n:
+		var d = Panel.new()
+		var s = StyleBoxFlat.new()
+		s.set_corner_radius_all(5)
+		s.set_border_width_all(1)
+		if i == current:
+			s.bg_color = GOLD
+			s.border_color = Color(1,1,1,0.9)
+		elif i in selected:
+			s.bg_color = Color(0.85,0.7,0.36,0.45)
+			s.border_color = Color(0.85,0.7,0.36,0.8)
+		else:
+			s.bg_color = Color(1,1,1,0.08)
+			s.border_color = Color(1,1,1,0.14)
+		d.add_theme_stylebox_override("panel", s)
+		rect(d, x + i*16, y, 10, 10)
+
+func budget_bar(x: float, y: float, w: float, ratio: float):
+	var bg = Panel.new()
+	var s = StyleBoxFlat.new()
+	s.bg_color = Color(1,1,1,0.08)
+	s.set_corner_radius_all(5)
+	bg.add_theme_stylebox_override("panel", s)
+	rect(bg,x,y,w,10)
+	var r = clampf(ratio,0.0,1.0)
+	if r > 0.0:
+		var fg = Panel.new()
+		var s2 = StyleBoxFlat.new()
+		s2.bg_color = GOLD if r<=1.0 else Color("c96a4a")
+		s2.set_corner_radius_all(5)
+		fg.add_theme_stylebox_override("panel", s2)
+		rect(fg,x,y,mini(w,int(w*r)),10)
+
+func close_dots_menu():
+	if dots_menu != null and is_instance_valid(dots_menu):
+		dots_menu.queue_free()
+	dots_menu = null
+
+func open_dots_menu(items: Array):
+	close_dots_menu()
+	var root = Control.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.gui_input.connect(func(ev):
+		if ev is InputEventMouseButton and ev.pressed:
+			close_dots_menu())
+	ui.add_child(root)
+	dots_menu = root
+	var mh = 18 + items.size()*52
+	var p = panel(1330,104,246,mh,root)
+	var vb = VBoxContainer.new()
+	vb.position = Vector2(14,12)
+	vb.size = Vector2(218,mh-24)
+	vb.add_theme_constant_override("separation",8)
+	p.add_child(vb)
+	for it in items:
+		var item = it
+		var b = Button.new()
+		b.text = str(item[0])
+		b.custom_minimum_size.y = 44
+		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		b.pressed.connect(func():
+			var cb: Callable = item[1]
+			close_dots_menu()
+			cb.call())
+		vb.add_child(b)
+
 func clear_ui():
+	dots_menu = null
 	if mic_recording:
 		mic_recording = false
 		if is_instance_valid(mic_timer): mic_timer.stop()
@@ -255,6 +365,7 @@ func show_applicant_form():
 	panel(70,55,650,790)
 	label("BASQARU  /  ҮМІТКЕР АНКЕТАСЫ",110,85,560,30,17,GOLD)
 	label("Өзіңізді\ntаныстырыңыз",110,135,560,130,42,PAPER,ui,true)
+	hairline(110,272,560)
 	label("Тегі",110,285,540,30)
 	app_form_last = LineEdit.new()
 	app_form_last.placeholder_text = "Мысалы: Серіков"
@@ -404,19 +515,71 @@ func show_applicant_interview():
 	clear_ui()
 	photo_director()
 	panel(24,20,1552,75)
-	label("BASQARU  /  СҰХБАТ",46,38,260,36,25,GOLD)
-	label(app_session.position,320,35,900,40,24)
-	button("Мәзір",1409,34,144,48,func():
-		if not busy: show_menu())
-	panel(24,122,340,366)
-	label("СІЗ  ·  ҮМІТКЕР",47,145,295,30,15,GOLD)
-	label(app_session.first_name+" "+app_session.last_name,47,196,295,70,29,PAPER,ui,true)
-	label(app_session.position,47,276,295,58,19)
-	label(str(app_session.age)+" жас",47,342,295,32,15,MUTED)
-	label(money(app_session.salary)+" / ай — қалаған",47,391,295,33,21,GOLD)
+	label("BASQARU  /  СҰХБАТ",46,38,300,36,25,GOLD)
+	label(app_session.position,370,35,700,40,24)
+	var topc = chip(1100,34,180,48,"Сұрақ 1 / 10",15,GOLD)
+	app_top_chip = topc.get_node("text")
+	button("···",1492,34,60,48,func():
+		if not busy:
+			if dots_menu != null:
+				close_dots_menu()
+			else:
+				open_dots_menu([
+					["Ереже", show_rules],
+					["Мәзір", show_menu]
+				]))
+	hairline(24,95,1552)
+	panel(24,122,340,460)
+	var abox = VBoxContainer.new()
+	abox.position = Vector2(47,140)
+	abox.size = Vector2(294,424)
+	abox.add_theme_constant_override("separation",10)
+	ui.add_child(abox)
+	var ah = Label.new()
+	ah.text = "СІЗ  ·  ҮМІТКЕР"
+	ah.add_theme_font_size_override("font_size",15)
+	ah.add_theme_color_override("font_color",GOLD)
+	abox.add_child(ah)
+	var an = Label.new()
+	an.text = str(app_session.first_name)+" "+str(app_session.last_name)
+	an.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	an.add_theme_font_size_override("font_size",28)
+	an.add_theme_color_override("font_color",PAPER)
+	an.add_theme_font_override("font",display)
+	abox.add_child(an)
+	var ap = Label.new()
+	ap.text = str(app_session.position)
+	ap.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ap.add_theme_font_size_override("font_size",19)
+	abox.add_child(ap)
+	var aag = Label.new()
+	aag.text = "Жасы:  "+str(int(float(app_session.age)))
+	aag.add_theme_font_size_override("font_size",15)
+	aag.add_theme_color_override("font_color",MUTED)
+	abox.add_child(aag)
+	var asal = Label.new()
+	asal.text = money(app_session.salary)+" / ай — қалаған"
+	asal.add_theme_font_size_override("font_size",21)
+	asal.add_theme_color_override("font_color",GOLD)
+	abox.add_child(asal)
+	var adiv = ColorRect.new()
+	adiv.color = Color(1,1,1,0.08)
+	adiv.custom_minimum_size = Vector2(0,2)
+	abox.add_child(adiv)
+	var atl = Label.new()
+	atl.text = "ЖЕТІСТІКТЕРІҢІЗ"
+	atl.add_theme_font_size_override("font_size",14)
+	atl.add_theme_color_override("font_color",GOLD)
+	abox.add_child(atl)
+	var aach = Label.new()
+	aach.text = str(app_session.get("achievements","—"))
+	aach.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	aach.add_theme_font_size_override("font_size",14)
+	aach.add_theme_color_override("font_color",MUTED)
+	abox.add_child(aach)
 	panel(1176,122,400,540)
-	label("ДИРЕКТОРМЕН СҰХБАТ",1200,137,270,26,15,GOLD)
-	q_count_label = label("Сұрақ 1 / 10",1420,137,130,26,15,GOLD)
+	label("ДИРЕКТОРМЕН СҰХБАТ",1200,137,200,26,15,GOLD)
+	q_count_label = label("Сұрақ 1 / 10",1330,137,220,26,15,GOLD)
 	q_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	update_q_count()
 	chat_status = label("Жауабыңызды жазыңыз",1200,169,350,25,14,MUTED)
@@ -434,6 +597,7 @@ func show_applicant_interview():
 	panel(450,699,700,78)
 	rect(question,468,715,490,46)
 	send_button = button("Жіберу →",974,715,157,46,ask_app,ui,true)
+	hairline(24,802,1552)
 	panel(24,804,1552,76)
 	button("Сұхбаттан шығу",44,818,200,48,func():
 		if not busy: show_menu())
@@ -446,6 +610,14 @@ func show_applicant_interview():
 		play_director_voice(app_session.get("intro",""))
 
 func update_q_count():
+	if is_instance_valid(app_top_chip):
+		if app_session.get("finished",false):
+			app_top_chip.text = "Сұхбат аяқталды"
+		else:
+			var n0 = 1
+			for m in app_session.histories:
+				if m.role=="assistant": n0 += 1
+			app_top_chip.text = "Сұрақ %d / 10" % mini(n0,10)
 	if not is_instance_valid(q_count_label): return
 	if app_session.get("finished",false):
 		q_count_label.text = "Сұхбат аяқталды"
@@ -573,22 +745,72 @@ func show_interview():
 	photo(int(c.id))
 	panel(24,20,1552,75)
 	label("BASQARU",46,38,190,36,25,GOLD)
-	label(session.company,244,35,640,40,24)
-	button("Команда  %d / 5" % session.selected.size(),1045,34,220,48,show_team)
-	button("Ереже",1277,34,120,48,show_rules)
-	button("Мәзір",1409,34,144,48,func():
-		if not busy: show_menu())
-	panel(24,122,340,366)
-	label("ҮМІТКЕР  %02d / 15" % (current+1),47,145,295,30,15,GOLD)
-	label(c.name,47,196,295,70,29,PAPER,ui,true)
-	label(c.role,47,276,295,58,19)
-	label(c.group,47,342,295,32,15,MUTED)
-	label(money(c.salary)+" / ай",47,391,295,33,21,GOLD)
-	button("Анкетаны ашу  ↗",47,440,294,40,show_dossier)
-	panel(24,510,340,160)
-	label("АЙЛЫҚ ҚОР",47,529,295,25,14,MUTED)
-	label(money(spent()),47,565,295,40,28,GOLD)
-	label("Бюджет: "+money(session.budget),47,618,295,28,16,MUTED)
+	label(session.company,244,35,1000,40,24)
+	button("···",1492,34,60,48,func():
+		if not busy:
+			if dots_menu != null:
+				close_dots_menu()
+			else:
+				open_dots_menu([
+					["Команда  %d / 5" % session.selected.size(), show_team],
+					["Ереже", show_rules],
+					["Мәзір", show_menu]
+				]))
+	hairline(24,95,1552)
+	panel(24,122,340,460)
+	var cbox = VBoxContainer.new()
+	cbox.position = Vector2(47,140)
+	cbox.size = Vector2(294,424)
+	cbox.add_theme_constant_override("separation",10)
+	ui.add_child(cbox)
+	var ch = Label.new()
+	ch.text = "ҮМІТКЕР  %02d / 15" % (current+1)
+	ch.add_theme_font_size_override("font_size",15)
+	ch.add_theme_color_override("font_color",GOLD)
+	cbox.add_child(ch)
+	var cn = Label.new()
+	cn.text = c.name
+	cn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cn.add_theme_font_size_override("font_size",28)
+	cn.add_theme_color_override("font_color",PAPER)
+	cn.add_theme_font_override("font",display)
+	cbox.add_child(cn)
+	var cr = Label.new()
+	cr.text = str(c.role)
+	cr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cr.add_theme_font_size_override("font_size",19)
+	cbox.add_child(cr)
+	var ca = Label.new()
+	ca.text = "Жасы:  %d   ·   Бағыт:  %s" % [int(c.age), str(c.group)]
+	ca.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ca.add_theme_font_size_override("font_size",15)
+	ca.add_theme_color_override("font_color",MUTED)
+	cbox.add_child(ca)
+	var cs = Label.new()
+	cs.text = "Дағдылар:  " + " · ".join(Array(c.skills).slice(0,4))
+	cs.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cs.add_theme_font_size_override("font_size",14)
+	cs.add_theme_color_override("font_color",MUTED)
+	cbox.add_child(cs)
+	var csp = Control.new()
+	csp.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cbox.add_child(csp)
+	var csal = Label.new()
+	csal.text = money(c.salary) + " / ай"
+	csal.add_theme_font_size_override("font_size",21)
+	csal.add_theme_color_override("font_color",GOLD)
+	cbox.add_child(csal)
+	var cab = Button.new()
+	cab.text = "Анкетаны ашу  ↗"
+	cab.custom_minimum_size.y = 44
+	cab.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	cab.pressed.connect(show_dossier)
+	cbox.add_child(cab)
+	panel(24,602,340,150)
+	label("АЙЛЫҚ ҚОР",47,620,295,24,14,MUTED)
+	label(money(spent()),47,644,295,36,28,GOLD)
+	budget_bar(47,692,294,float(spent())/float(maxi(1,session.budget)))
+	label("Бюджет:  "+money(session.budget)+"   ·   Қалды:  "+money(session.budget-spent()),47,714,295,28,14,MUTED)
 	panel(1176,122,400,540)
 	label("ӘҢГІМЕЛЕСУ",1200,137,350,26,15,GOLD)
 	chat_status = label("Сұрағыңызды қойыңыз",1200,169,350,25,14,MUTED)
@@ -608,17 +830,19 @@ func show_interview():
 	panel(450,699,700,78)
 	rect(question,468,715,490,46)
 	send_button = button("Жіберу →",974,715,157,46,ask,ui,true)
+	hairline(24,802,1552)
 	panel(24,804,1552,76)
 	button("← Алдыңғы",44,818,190,48,func(): navigate(-1))
 	button("Келесі →",248,818,180,48,func(): navigate(1))
 	button("Үміткерлер",444,818,190,48,show_candidates)
 	var hired = c.id in session.selected
+	var offc0 = session.get("offers",{}).get(str(int(c.id)),{})
+	if hired and str(offc0.get("question",""))!="" and str(offc0.get("answer",""))=="":
+		button("Сұраққа жауап →",649,818,226,48,func(): open_offer(int(c.id)),ui,true)
+	else:
+		progress_dots(652,836,15,int(c.id),session.selected)
 	var choose = button("Командадан шығару" if hired else "Командаға қабылдау",890,818,340,48,toggle_hire,ui,not hired)
 	choose.disabled = not hired and session.selected.size()>=5
-	if hired:
-		var offc = session.get("offers",{}).get(str(int(c.id)),{})
-		if offc.get("question","")!="" and offc.get("answer","")=="":
-			button("Сұраққа жауап →",649,818,226,48,func(): open_offer(int(c.id)),ui,true)
 	var finish = button("Қорытынды →",1246,818,307,48,confirm_finish)
 	finish.disabled = session.selected.size()!=5
 	if hired and session.get("offers",{}).get(str(int(c.id)),{}).get("question","")=="":
